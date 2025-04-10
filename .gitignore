@@ -3,3 +3,6 @@ node_modules/
 .next/
 out/
 dist/
+backend/venv/
+backend/__pycache__/
+*.pyc
