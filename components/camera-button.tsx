@@ -54,20 +54,47 @@ export function CameraButton({
     }
   }
 
-  const captureAndDetect = () => {
-    // In a real app, this would send the image to a YOLOv8 model
-    // For demo purposes, we'll simulate detection results
-    // Only include active chips in the results
-    const mockResults: Record<string, number> = {}
+  const captureAndDetect = async () => {
+  if (!canvasRef.current || !videoRef.current) return
 
-    // Generate random counts only for active chips
-    activeChips.forEach((color) => {
-      mockResults[color] = Math.floor(Math.random() * 10) + 1
-    })
+  const canvas = canvasRef.current
+  const video = videoRef.current
+  const ctx = canvas.getContext("2d")
 
-    onDetection(mockResults)
-    handleOpenChange(false)
-  }
+  // Set canvas size to match video
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+
+  // Draw the current video frame onto canvas
+  ctx?.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+  // Convert canvas to Blob
+  canvas.toBlob(async (blob) => {
+    if (!blob) return
+
+    const formData = new FormData()
+    formData.append("file", blob, "frame.jpg")
+
+    try {
+  const response = await fetch("http://localhost:8000/predict/", {
+    method: "POST",
+    body: formData,
+  })
+
+  if (!response.ok) throw new Error("Detection failed")
+
+  const data = await response.json()
+  const counts: Record<string, number> = data.counts_by_color || {}
+
+  onDetection(counts)
+  handleOpenChange(false)
+} catch (err) {
+  console.error("Detection error:", err)
+  alert("Error running detection. Check the backend.")
+}
+
+  }, "image/jpeg")
+}
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
