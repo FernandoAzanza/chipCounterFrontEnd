@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: chip-counter-api
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --host=0.0.0.0 --port=8000
+    rootDir: backend
+    envVars:
+      - key: MODEL_PATH
+        value: v3/train_v3/weights/best.pt
