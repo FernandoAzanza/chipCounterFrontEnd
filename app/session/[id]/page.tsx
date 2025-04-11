@@ -1,14 +1,13 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
-import Link from "next/link"
-import { ChevronRight, QrCode } from "lucide-react"
+import {use, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ChipInput } from "@/components/chip-input"
 import { CameraButton } from "@/components/camera-button"
 import { BuyInInput } from "@/components/buy-in-input"
+import { ChevronRight, QrCode } from "lucide-react"
 import {
   getSession,
   getChipColors,
@@ -16,13 +15,14 @@ import {
   updateChipCounts,
   getSessionPlayers,
   getPlayerChipCounts,
+  updatePlayerBuyIn,
 } from "@/lib/db"
 import { AuthCheck } from "@/components/auth-check"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { QRDisplay } from "@/components/qr-display"
+import { useRouter } from "next/navigation"
 
 type ChipColor = "red" | "green" | "blue" | "white" | "black"
-
 
 interface SessionPageProps {
   params: Promise<{ id: string }>
@@ -33,119 +33,341 @@ export default function SessionPage({ params }: SessionPageProps) {
   const [playerName, setPlayerName] = useState("")
   const [sessionTitle, setSessionTitle] = useState("Loading...")
   const [activeChips, setActiveChips] = useState<ChipColor[]>([])
-  const [chipCounts, setChipCounts] = useState<Record<ChipColor, number>>({ red: 0, green: 0, blue: 0, white: 0, black: 0 })
-  const [chipValues, setChipValues] = useState<Record<ChipColor, number>>({ red: 0, green: 0, blue: 0, white: 0, black: 0 })
+  const [chipCounts, setChipCounts] = useState<Record<ChipColor, number>>({
+    red: 0,
+    green: 0,
+    blue: 0,
+    white: 0,
+    black: 0,
+  })
+  const [chipValues, setChipValues] = useState<Record<ChipColor, number>>({
+    red: 0,
+    green: 0,
+    blue: 0,
+    white: 0,
+    black: 0,
+  })
   const [buyInAmount, setBuyInAmount] = useState(0)
   const [totalValue, setTotalValue] = useState(0)
   const [netProfit, setNetProfit] = useState(0)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showQrCode, setShowQrCode] = useState(false)
+  const [aiDetectionCount, setAiDetectionCount] = useState(0)
+  const [dataLoaded, setDataLoaded] = useState(false)
+
+  const router = useRouter()
+
+  // Reset saving state when component mounts/unmounts
+  useEffect(() => {
+    setIsSaving(false)
+    return () => {
+      setIsSaving(false)
+    }
+  }, [])
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
-      setErrorMessage(null)
-      const session = await getSession(id)
-      if (!session) return setErrorMessage("Session not found")
-      setSessionTitle(session.title)
+    // Fetch session data from Supabase
+    const fetchSessionData = async () => {
+      try {
+        setIsLoading(true)
+        setErrorMessage(null)
 
-      const colors = await getChipColors(id)
-      const activeColors = colors.filter((c) => c.is_active).map((c) => c.color as ChipColor)
-      setActiveChips(activeColors)
-      const values = { red: 0, green: 0, blue: 0, white: 0, black: 0 }
-      colors.forEach((c) => (values[c.color as ChipColor] = c.value))
-      setChipValues(values)
+        // Get session details
+        const session = await getSession(id)
+        if (session) {
+          setSessionTitle(session.title)
+        } else {
+          setErrorMessage("Session not found")
+          return
+        }
 
-      const players = await getSessionPlayers(id)
-      if (players.length > 0) {
-        const p = players[0]
-        setPlayerId(p.id)
-        setPlayerName(p.name)
-        setBuyInAmount(p.buy_in || 0)
-        const counts = await getPlayerChipCounts(p.id)
-        const newCounts = { ...chipCounts }
-        counts.forEach((c) => (newCounts[c.color as ChipColor] = c.count))
-        setChipCounts(newCounts)
+        // Get chip colors
+        const colors = await getChipColors(id)
+        if (colors && colors.length > 0) {
+          const activeColors = colors.filter((c) => c.is_active).map((c) => c.color as ChipColor)
+
+          setActiveChips(activeColors)
+
+          // Set chip values
+          const values: Record<ChipColor, number> = {
+            red: 0,
+            green: 0,
+            blue: 0,
+            white: 0,
+            black: 0,
+          }
+
+          colors.forEach((c) => {
+            if (c.color in values) {
+              values[c.color as ChipColor] = c.value
+            }
+          })
+
+          setChipValues(values)
+        }
+
+        // Try to load existing player data
+        await loadExistingPlayerData()
+
+        setDataLoaded(true)
+      } catch (error) {
+        console.error("Error fetching session data:", error)
+        setErrorMessage("Failed to load session data")
+      } finally {
+        setIsLoading(false)
       }
-      setIsLoading(false)
     }
-    fetchData()
+
+    fetchSessionData()
   }, [id])
 
+  // Load existing player data if available
+  const loadExistingPlayerData = async () => {
+    try {
+      // Get players for this session
+      const players = await getSessionPlayers(id)
+
+      // If there are players, use the first one (for simplicity)
+      // In a real app, you might want to show a player selection UI
+      if (players && players.length > 0) {
+        const player = players[0]
+        setPlayerId(player.id)
+        setPlayerName(player.name)
+        setBuyInAmount(player.buy_in || 0)
+
+        // Load this player's chip counts
+        const counts = await getPlayerChipCounts(player.id)
+
+        if (counts && counts.length > 0) {
+          const newCounts = { ...chipCounts }
+
+          counts.forEach((count) => {
+            if (count.color in newCounts) {
+              newCounts[count.color as ChipColor] = count.count
+            }
+          })
+
+          setChipCounts(newCounts)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading existing player data:", error)
+      // Don't show an error message here, as this is just an enhancement
+    }
+  }
+
   useEffect(() => {
-    const total = activeChips.reduce((acc, c) => acc + chipCounts[c] * chipValues[c], 0)
+    // Calculate total value
+    let total = 0
+    activeChips.forEach((color) => {
+      total += chipCounts[color] * chipValues[color]
+    })
     setTotalValue(total)
+
+    // Calculate net profit (total value minus buy-in)
     setNetProfit(total - buyInAmount)
   }, [chipCounts, chipValues, activeChips, buyInAmount])
 
+  // Clear messages after 3 seconds
   useEffect(() => {
-    const t = setTimeout(() => {
-      setErrorMessage(null)
-      setSuccessMessage(null)
-    }, 3000)
-    return () => clearTimeout(t)
+    if (errorMessage || successMessage) {
+      const timer = setTimeout(() => {
+        setErrorMessage(null)
+        setSuccessMessage(null)
+      }, 3000)
+      return () => clearTimeout(timer)
+    }
   }, [errorMessage, successMessage])
 
-  const handleSavePlayer = async () => {
-    if (!playerName) return setErrorMessage("Please enter your name")
-    try {
-      const idToUse = playerId || (await createPlayer(id, playerName, buyInAmount))
-      if (!idToUse) return setErrorMessage("Failed to save player data")
-      setPlayerId(idToUse)
-      const chipData = activeChips.map((c) => ({ color: c, count: chipCounts[c] }))
-      await updateChipCounts(idToUse, chipData)
-      setSuccessMessage("Your data has been saved")
-    } catch (e) {
-      setErrorMessage("Failed to save player data")
+  const handleChipCountChange = (color: ChipColor, count: number) => {
+    setChipCounts((prev) => ({
+      ...prev,
+      [color]: count,
+    }))
+  }
+
+  const handleBuyInChange = (value: number) => {
+    setBuyInAmount(value)
+
+    // If we already have a player ID, update the buy-in amount
+    if (playerId) {
+      updatePlayerBuyIn(playerId, value).catch((error) => {
+        console.error("Error updating buy-in:", error)
+      })
     }
   }
 
   const handleAIDetection = (results: { [color: string]: number }) => {
-    const filtered = Object.fromEntries(
-      Object.entries(results).filter(([c]) => activeChips.includes(c as ChipColor))
+    // Filter results to only include active chips
+    const filteredResults = Object.fromEntries(
+      Object.entries(results).filter(([color]) => activeChips.includes(color as ChipColor)),
     )
-    setChipCounts((prev) => ({ ...prev, ...filtered }))
+
+    setChipCounts((prev) => ({
+      ...prev,
+      ...filteredResults,
+    }))
+
+    // Increment AI detection count
+    setAiDetectionCount((prev) => prev + 1)
+
+    // Show success message
+    setSuccessMessage(`Chips detected and counted successfully!`)
+
+    // Auto-save after AI detection if player is already saved
+    if (playerId) {
+      handleSavePlayer(true)
+    }
   }
 
-  const getSessionUrl = () => `${window.location.origin}/join-session?id=${id}`
+  const handleSavePlayer = async (isAutoSave = false): Promise<boolean> => {
+    if (!playerName && !isAutoSave) {
+      setErrorMessage("Please enter your name")
+      return false
+    }
+
+    try {
+      setIsSaving(true)
+
+      // Create or update player
+      let playerIdToUse = playerId
+
+      if (!playerIdToUse) {
+        if (!playerName) {
+          setErrorMessage("Please enter your name")
+          setIsSaving(false)
+          return false
+        }
+
+        // Create new player
+        playerIdToUse = await createPlayer(id, playerName, buyInAmount)
+        if (!playerIdToUse) {
+          setErrorMessage("Failed to save player data")
+          setIsSaving(false)
+          return false
+        }
+        setPlayerId(playerIdToUse)
+      } else {
+        // Update existing player's buy-in
+        await updatePlayerBuyIn(playerIdToUse, buyInAmount)
+      }
+
+      // Save chip counts
+      const chipCountsData = activeChips.map((color) => ({
+        color,
+        count: chipCounts[color],
+      }))
+
+      await updateChipCounts(playerIdToUse, chipCountsData)
+
+      if (!isAutoSave) {
+        setSuccessMessage("Your data has been saved")
+      }
+
+      setIsSaving(false)
+      return true
+    } catch (error) {
+      console.error("Error saving player data:", error)
+      setErrorMessage("Failed to save data")
+      setIsSaving(false)
+      return false
+    }
+  }
+
+  const handleSaveAndNavigateToStats = async () => {
+    // Show saving indicator
+    setIsSaving(true)
+
+    try {
+      // First try to save the data
+      const saveSuccess = await handleSavePlayer()
+
+      // Only navigate if save was successful
+      if (saveSuccess) {
+        setSuccessMessage("Data saved! Navigating to stats...")
+
+        // Make sure to reset isSaving state before navigation
+        setIsSaving(false)
+
+        // Short delay to show the success message
+        setTimeout(() => {
+          router.push(`/session/${id}/stats`)
+        }, 500)
+      } else {
+        // Ensure isSaving is reset if save fails
+        setIsSaving(false)
+      }
+    } catch (error) {
+      console.error("Error saving before navigation:", error)
+      setErrorMessage("Failed to save data before viewing stats")
+      setIsSaving(false)
+    }
+  }
+
+  // Get the join URL for the QR code
   const getJoinUrl = () => {
-  return `${window.location.origin}/join-session?id=${id}`
-}
+    return `${window.location.origin}/join-session?id=${id}`
+  }
 
   if (isLoading) {
-    return <AuthCheck><div className="min-h-screen flex items-center justify-center">Loading session data...</div></AuthCheck>
+    return (
+      <AuthCheck>
+        <div className="min-h-screen p-6 flex items-center justify-center">
+          <p>Loading session data...</p>
+        </div>
+      </AuthCheck>
+    )
   }
 
   return (
     <AuthCheck>
       <div className="min-h-screen p-6 flex flex-col items-center relative">
-        <Button variant="outline" 
-        size="icon" 
-        className="absolute top-2 left-2" 
-        onClick={() => setShowQrCode(true)} 
-        aria-label="Show QR Code"
-      >
-        <QrCode className="h-4 w-4" />
-      </Button>
-
+        {/* QR Code Button */}
+        <Button
+          variant="outline"
+          size="icon"
+          className="absolute top-2 left-2"
+          onClick={() => setShowQrCode(true)}
+          aria-label="Show QR Code"
+        >
+          <QrCode className="h-4 w-4" />
+        </Button>
 
         <h1 className="text-2xl font-bold mb-6 text-center">{sessionTitle}</h1>
 
-        {errorMessage && <div className="w-full max-w-sm mb-4 p-3 bg-red-100 text-red-700 border border-red-300 rounded">{errorMessage}</div>}
-        {successMessage && <div className="w-full max-w-sm mb-4 p-3 bg-green-100 text-green-700 border border-green-300 rounded">{successMessage}</div>}
+        {errorMessage && (
+          <div className="w-full max-w-sm mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded">
+            {errorMessage}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="w-full max-w-sm mb-4 p-3 bg-green-100 border border-green-300 text-green-700 rounded">
+            {successMessage}
+          </div>
+        )}
 
         <div className="w-full max-w-sm space-y-6">
           <div>
-            <Label htmlFor="playerName" className="text-center block mb-2">Player Name</Label>
-            <Input id="playerName" value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder="Your name" className="text-center" />
+            <Label htmlFor="playerName" className="text-center block mb-2">
+              Player Name
+            </Label>
+            <Input
+              id="playerName"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Your name"
+              className="text-center"
+            />
           </div>
 
-          <BuyInInput value={buyInAmount} onChange={setBuyInAmount} />
+          <BuyInInput value={buyInAmount} onChange={handleBuyInChange} />
 
-          <div className="flex justify-between px-2 mt-8">
+          <div className="flex justify-between px-2 w-full mt-8">
             <div className="w-1/2 text-center font-semibold">#</div>
             <div className="w-1/2 text-center font-semibold">$</div>
           </div>
@@ -157,7 +379,7 @@ export default function SessionPage({ params }: SessionPageProps) {
                 color={color}
                 count={chipCounts[color]}
                 value={chipValues[color]}
-                onCountChange={(count) => setChipCounts((prev) => ({ ...prev, [color]: count }))}
+                onCountChange={(count) => handleChipCountChange(color, count)}
                 readOnly={false}
               />
             ))}
@@ -167,39 +389,55 @@ export default function SessionPage({ params }: SessionPageProps) {
             <span className="font-medium">Total Chip Value:</span>
             <span className="font-medium">${totalValue.toFixed(2)}</span>
           </div>
+
           <div className="flex justify-between items-center py-2 border-t border-b">
             <span className="font-bold">Net Profit/Loss:</span>
-            <span className={`font-bold text-xl ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>${netProfit.toFixed(2)}</span>
+            <span className={`font-bold text-xl ${netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+              ${netProfit.toFixed(2)}
+            </span>
           </div>
 
-          <CameraButton onDetection={handleAIDetection} activeChips={activeChips} />
+          <div className="mt-8 w-full">
+            <CameraButton onDetection={handleAIDetection} activeChips={activeChips} />
+            {aiDetectionCount > 0 && (
+              <p className="text-center text-sm text-gray-500 mt-2">
+                AI detection used {aiDetectionCount} time{aiDetectionCount !== 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
 
-          <Button className="w-full" onClick={handleSavePlayer}>Save</Button>
-          <Button variant="ghost" className="w-full" asChild>
-            <Link href={`/session/${id}/stats`}><span className="flex items-center justify-center gap-1">Stats <ChevronRight className="w-4 h-4" /></span></Link>
-          </Button>
+          <div className="flex justify-center mt-4">
+            <Button
+              variant="ghost"
+              onClick={handleSaveAndNavigateToStats}
+              disabled={isSaving || !dataLoaded}
+              className="px-8"
+            >
+              {isSaving ? "Saving..." : "Stats"} <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
+        {/* QR Code Dialog */}
         <Dialog open={showQrCode} onOpenChange={setShowQrCode}>
-  <DialogContent className="sm:max-w-md">
-    <DialogHeader>
-      <DialogTitle>Invite Players</DialogTitle>
-    </DialogHeader>
-    <div className="flex flex-col items-center justify-center p-4">
-      <QRDisplay
-        value={getJoinUrl()}         // 👈 dynamically generated link to join session
-        size={200}
-        label="Scan this QR code to join this session"
-        sessionId={id}               // 👈 optional prop if your QRDisplay uses it
-      />
-      <p className="mt-4 text-center text-sm">
-        Players can also join by entering this session ID in the join page:
-      </p>
-      <div className="mt-2 p-2 bg-gray-100 rounded-md font-mono text-center w-full">{id}</div>
-    </div>
-  </DialogContent>
-</Dialog>
-
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Invite Players</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col items-center justify-center p-4">
+              <QRDisplay
+                value={getJoinUrl()}
+                size={200}
+                label="Scan this QR code to join this session"
+                sessionId={id}
+              />
+              <p className="mt-4 text-center text-sm">
+                Players can also join by entering this session ID in the join page:
+              </p>
+              <div className="mt-2 p-2 bg-gray-100 rounded-md font-mono text-center w-full">{id}</div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </AuthCheck>
   )

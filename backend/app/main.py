@@ -23,7 +23,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # === Load model once ===
-MODEL_PATH = "v5/my_model5yolo8.pt"
+MODEL_PATH = "../v5/my_model5yolov8.pt"
 model = YOLO(MODEL_PATH)
 
 

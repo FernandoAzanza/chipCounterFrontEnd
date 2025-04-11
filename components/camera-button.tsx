@@ -7,6 +7,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 
 type ChipColor = "red" | "green" | "blue" | "white" | "black"
 
+// Map backend color names to our frontend color names
+const COLOR_MAPPING: Record<string, ChipColor> = {
+  "Red Chip": "red",
+  "Green Chip": "green",
+  "Blue Chip": "blue",
+  "White Chip": "white",
+  "Black Chip": "black",
+}
+
 interface CameraButtonProps {
   onDetection: (results: { [color: string]: number }) => void
   label?: string
@@ -20,6 +29,8 @@ export function CameraButton({
 }: CameraButtonProps) {
   const [open, setOpen] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -33,8 +44,11 @@ export function CameraButton({
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
       }
+
+      setError(null)
     } catch (error) {
       console.error("Error accessing camera:", error)
+      setError("Could not access camera. Please check permissions.")
     }
   }
 
@@ -55,46 +69,90 @@ export function CameraButton({
   }
 
   const captureAndDetect = async () => {
-  if (!canvasRef.current || !videoRef.current) return
-
-  const canvas = canvasRef.current
-  const video = videoRef.current
-  const ctx = canvas.getContext("2d")
-
-  // Set canvas size to match video
-  canvas.width = video.videoWidth
-  canvas.height = video.videoHeight
-
-  // Draw the current video frame onto canvas
-  ctx?.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-  // Convert canvas to Blob
-  canvas.toBlob(async (blob) => {
-    if (!blob) return
-
-    const formData = new FormData()
-    formData.append("file", blob, "frame.jpg")
+    if (!videoRef.current || !canvasRef.current) return
 
     try {
-  const response = await fetch("http://localhost:8000/predict/", {
-    method: "POST",
-    body: formData,
-  })
+      setIsProcessing(true)
+      setError(null)
 
-  if (!response.ok) throw new Error("Detection failed")
+      // Get video dimensions
+      const videoWidth = videoRef.current.videoWidth
+      const videoHeight = videoRef.current.videoHeight
 
-  const data = await response.json()
-  const counts: Record<string, number> = data.counts_by_color || {}
+      // Set canvas dimensions to match video
+      canvasRef.current.width = videoWidth
+      canvasRef.current.height = videoHeight
 
-  onDetection(counts)
-  handleOpenChange(false)
-} catch (err) {
-  console.error("Detection error:", err)
-  alert("Error running detection. Check the backend.")
-}
+      // Draw current video frame to canvas
+      const ctx = canvasRef.current.getContext("2d")
+      if (!ctx) return
 
-  }, "image/jpeg")
-}
+      ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight)
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob | null>((resolve) => canvasRef.current?.toBlob(resolve, "image/jpeg", 0.8))
+
+      if (!blob) {
+        throw new Error("Failed to capture image")
+      }
+
+      // Create FormData and append the image
+      const formData = new FormData()
+      formData.append("file", blob, "chip-image.jpg")
+
+      // Send to backend API
+      const response = await fetch("http://localhost:8000/predict/", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // Process the response
+      const chipCounts: Record<string, number> = {}
+
+      // Map the backend color names to our frontend color names
+      Object.entries(data.counts_by_color).forEach(([backendColor, count]) => {
+        const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
+        if (activeChips.includes(frontendColor as ChipColor)) {
+          chipCounts[frontendColor] = count as number
+        }
+      })
+
+      // Send results to parent component
+      onDetection(chipCounts)
+
+      // Close the dialog
+      handleOpenChange(false)
+    } catch (err) {
+      console.error("Error during chip detection:", err)
+      setError(err instanceof Error ? err.message : "Failed to detect chips")
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // Fallback to mock detection if in development/preview
+  const useMockDetection = () => {
+    setIsProcessing(true)
+
+    // Simulate API call delay
+    setTimeout(() => {
+      // Generate random counts only for active chips
+      const mockResults: Record<string, number> = {}
+      activeChips.forEach((color) => {
+        mockResults[color] = Math.floor(Math.random() * 10) + 1
+      })
+
+      onDetection(mockResults)
+      handleOpenChange(false)
+      setIsProcessing(false)
+    }, 1500)
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -123,10 +181,23 @@ export function CameraButton({
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex justify-center">
-          <Button onClick={captureAndDetect} className="bg-green-600 hover:bg-green-700">
-            Detect Chips
+
+        {error && <div className="p-2 text-sm text-red-600 bg-red-100 rounded-md">{error}</div>}
+
+        <div className="flex justify-center gap-2">
+          <Button
+            onClick={captureAndDetect}
+            className="bg-green-600 hover:bg-green-700"
+            disabled={isProcessing || !stream}
+          >
+            {isProcessing ? "Processing..." : "Detect Chips"}
           </Button>
+
+          {process.env.NODE_ENV !== "production" && (
+            <Button variant="outline" onClick={useMockDetection} disabled={isProcessing}>
+              Use Mock Data
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
