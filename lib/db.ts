@@ -10,13 +10,13 @@ export async function getCurrentUserId(): Promise<string | null> {
 
     if (error || !data.session) {
       console.log("No authenticated user found, using mock user ID")
-      return "mock-user-id" // Use a consistent mock ID for development
+      return "00000000-0000-0000-0000-000000000001" // Use a consistent mock ID for development
     }
 
     return data.session.user.id
   } catch (error) {
     console.error("Error getting current user:", error)
-    return "mock-user-id" // Fallback to mock ID
+    return "00000000-0000-0000-0000-000000000001" // Fallback to mock ID
   }
 }
 
@@ -25,6 +25,7 @@ export async function createSession(title: string): Promise<string | null> {
   // Get the current user ID
   const userId = await getCurrentUserId()
 
+  // Start a transaction using Supabase's built-in transaction support
   const { data, error } = await supabase
     .from("sessions")
     .insert([{ title, user_id: userId }])
@@ -35,6 +36,9 @@ export async function createSession(title: string): Promise<string | null> {
     console.error("Error creating session:", error)
     return null
   }
+
+  // Add the creator as a participant
+  await addSessionParticipant(data.id, userId)
 
   return data.id
 }
@@ -54,10 +58,11 @@ export async function getUserSessions(): Promise<Session[]> {
   // Get the current user ID
   const userId = await getCurrentUserId()
 
+  // Get sessions where the user is either the creator or a participant
   const { data, error } = await supabase
     .from("sessions")
     .select("*")
-    .eq("user_id", userId)
+    .or(userId ? `user_id.eq.${userId},id.in.(${getParticipantSessionsSubquery(userId)})` : "user_id.eq.null")
     .order("created_at", { ascending: false })
 
   if (error) {
@@ -66,6 +71,58 @@ export async function getUserSessions(): Promise<Session[]> {
   }
 
   return data || []
+}
+
+// Helper function to create a subquery for sessions where the user is a participant
+function getParticipantSessionsSubquery(userId: string): string {
+  return `select session_id from session_participants where user_id = '${userId}'`
+}
+
+// Session participants operations
+export async function addSessionParticipant(sessionId: string, userId?: string | null): Promise<boolean> {
+  // If no userId is provided, use the current user
+  const participantId = userId || (await getCurrentUserId())
+
+  if (!participantId) {
+    console.error("No user ID available to add as participant")
+    return false
+  }
+
+  // Check if the user is already a participant
+  const { data: existingParticipant } = await supabase
+    .from("session_participants")
+    .select("id")
+    .eq("session_id", sessionId)
+    .eq("user_id", participantId)
+    .single()
+
+  // If already a participant, no need to add again
+  if (existingParticipant) {
+    return true
+  }
+
+  // Add the user as a participant
+  const { error } = await supabase
+    .from("session_participants")
+    .insert([{ session_id: sessionId, user_id: participantId }])
+
+  if (error) {
+    console.error("Error adding session participant:", error)
+    return false
+  }
+
+  return true
+}
+
+export async function getSessionParticipants(sessionId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("session_participants").select("user_id").eq("session_id", sessionId)
+
+  if (error) {
+    console.error("Error fetching session participants:", error)
+    return []
+  }
+
+  return (data as { user_id: string }[]).map((p) => p.user_id) || []
 }
 
 // Chip color operations
@@ -113,6 +170,9 @@ export async function createPlayer(sessionId: string, name: string, buyIn = 0): 
     console.error("Error creating player:", error)
     return null
   }
+
+  // Add the current user as a session participant
+  await addSessionParticipant(sessionId)
 
   return data.id
 }

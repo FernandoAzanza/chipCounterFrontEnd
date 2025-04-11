@@ -1,6 +1,6 @@
 "use client"
 
-import {use, useState, useEffect } from "react"
+import { use, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,6 +16,7 @@ import {
   getSessionPlayers,
   getPlayerChipCounts,
   updatePlayerBuyIn,
+  addSessionParticipant,
 } from "@/lib/db"
 import { AuthCheck } from "@/components/auth-check"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -80,6 +81,9 @@ export default function SessionPage({ params }: SessionPageProps) {
         const session = await getSession(id)
         if (session) {
           setSessionTitle(session.title)
+
+          // Add the current user as a participant when they view the session
+          await addSessionParticipant(id)
         } else {
           setErrorMessage("Session not found")
           return

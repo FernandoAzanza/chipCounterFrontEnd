@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { useRouter, useSearchParams } from "next/navigation"
 import { QrCode } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { getSession } from "@/lib/db"
+import { getSession, addSessionParticipant } from "@/lib/db"
 import { AuthCheck } from "@/components/auth-check"
 import { QRScanner } from "@/components/qr-scanner"
 
@@ -44,6 +44,9 @@ export default function JoinSession() {
         setIsChecking(false)
         return
       }
+
+      // Add the current user as a participant
+      await addSessionParticipant(idToJoin)
 
       // Session exists, navigate to it
       router.push(`/session/${idToJoin}`)
