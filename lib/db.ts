@@ -57,25 +57,61 @@ export async function getSession(id: string): Promise<Session | null> {
 export async function getUserSessions(): Promise<Session[]> {
   // Get the current user ID
   const userId = await getCurrentUserId()
+  console.log("Getting sessions for user ID:", userId)
 
-  // Get sessions where the user is either the creator or a participant
-  const { data, error } = await supabase
+  // First, get sessions where the user is the creator
+  const { data: createdSessions, error: createdError } = await supabase
     .from("sessions")
     .select("*")
-    .or(userId ? `user_id.eq.${userId},id.in.(${getParticipantSessionsSubquery(userId)})` : "user_id.eq.null")
-    .order("created_at", { ascending: false })
+    .eq("user_id", userId)
 
-  if (error) {
-    console.error("Error fetching user sessions:", error)
+  if (createdError) {
+    console.error("Error fetching created sessions:", createdError)
     return []
   }
 
-  return data || []
-}
+  // Then, get sessions where the user is a participant
+  const { data: participatedSessionIds, error: participatedError } = await supabase
+    .from("session_participants")
+    .select("session_id")
+    .eq("user_id", userId)
 
-// Helper function to create a subquery for sessions where the user is a participant
-function getParticipantSessionsSubquery(userId: string): string {
-  return `select session_id from session_participants where user_id = '${userId}'`
+  if (participatedError) {
+    console.error("Error fetching participated session IDs:", participatedError)
+    return createdSessions || []
+  }
+
+  // If there are no participated sessions, return just the created ones
+  if (!participatedSessionIds || participatedSessionIds.length === 0) {
+    return createdSessions || []
+  }
+
+  // Extract the session IDs
+  const sessionIds = participatedSessionIds.map((p) => p.session_id)
+
+  // Get the session details for participated sessions
+  const { data: participatedSessions, error: sessionsError } = await supabase
+    .from("sessions")
+    .select("*")
+    .in("id", sessionIds)
+
+  if (sessionsError) {
+    console.error("Error fetching participated sessions:", sessionsError)
+    return createdSessions || []
+  }
+
+  // Combine created and participated sessions, removing duplicates
+  const allSessions = [...(createdSessions || [])]
+
+  // Add participated sessions that aren't already in the list
+  participatedSessions?.forEach((session) => {
+    if (!allSessions.some((s) => s.id === session.id)) {
+      allSessions.push(session)
+    }
+  })
+
+  // Sort by created_at in descending order
+  return allSessions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 }
 
 // Session participants operations
@@ -122,7 +158,7 @@ export async function getSessionParticipants(sessionId: string): Promise<string[
     return []
   }
 
-  return (data as { user_id: string }[]).map((p) => p.user_id) || []
+  return data.map((p) => p.user_id) || []
 }
 
 // Chip color operations
