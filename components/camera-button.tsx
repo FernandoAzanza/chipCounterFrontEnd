@@ -108,8 +108,16 @@ export function CameraButton({
       const chipCounts: Record<string, number> = {}
 
       // Handle different response formats
-      if (data && data.counts_by_color) {
-        // Original expected format
+      if (data && data.chip_counts) {
+        // Your Modal endpoint format (confirmed from curl test)
+        Object.entries(data.chip_counts).forEach(([backendColor, count]) => {
+          const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
+          if (activeChips.includes(frontendColor as ChipColor)) {
+            chipCounts[frontendColor] = count as number
+          }
+        })
+      } else if (data && data.counts_by_color) {
+        // Alternative format
         Object.entries(data.counts_by_color).forEach(([backendColor, count]) => {
           const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
           if (activeChips.includes(frontendColor as ChipColor)) {
