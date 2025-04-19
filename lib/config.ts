@@ -6,7 +6,7 @@ export const API_CONFIG = {
 
   // Endpoints
   endpoints: {
-    predict: "/", // Modal endpoints typically use the root path
+    predict: "", // Modal endpoints typically use the root path
   },
 
   // Feature flags

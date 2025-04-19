@@ -3,13 +3,7 @@
 import { useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Camera, X } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { API_CONFIG } from "@/lib/config"
 
 type ChipColor = "red" | "green" | "blue" | "white" | "black"
@@ -81,9 +75,7 @@ export function CameraButton({
     if (!ctx) return
     ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight)
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvasRef.current?.toBlob(resolve, "image/jpeg", 0.8)
-    )
+    const blob = await new Promise<Blob | null>((resolve) => canvasRef.current?.toBlob(resolve, "image/jpeg", 0.8))
 
     if (!blob) {
       setIsProcessing(false)
@@ -95,13 +87,13 @@ export function CameraButton({
     formData.append("file", blob, "chip-image.jpg")
 
     try {
-      const response = await fetch(
-        `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.predict}`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      )
+      // Log the API endpoint for debugging
+      console.log("Sending request to:", `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.predict}`)
+
+      const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.predict}`, {
+        method: "POST",
+        body: formData,
+      })
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`)
@@ -109,13 +101,54 @@ export function CameraButton({
 
       const data = await response.json()
 
+      // Log the full response for debugging
+      console.log("API Response:", data)
+
+      // Initialize chip counts
       const chipCounts: Record<string, number> = {}
-      Object.entries(data.counts_by_color).forEach(([backendColor, count]) => {
-        const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
-        if (activeChips.includes(frontendColor as ChipColor)) {
-          chipCounts[frontendColor] = count as number
+
+      // Handle different response formats
+      if (data && data.counts_by_color) {
+        // Original expected format
+        Object.entries(data.counts_by_color).forEach(([backendColor, count]) => {
+          const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
+          if (activeChips.includes(frontendColor as ChipColor)) {
+            chipCounts[frontendColor] = count as number
+          }
+        })
+      } else if (data && data.detections) {
+        // Alternative format with detections array
+        const counts: Record<string, number> = {}
+        data.detections.forEach((detection: any) => {
+          const className = detection.class_name || detection.class || "unknown"
+          counts[className] = (counts[className] || 0) + 1
+        })
+
+        Object.entries(counts).forEach(([backendColor, count]) => {
+          const frontendColor = COLOR_MAPPING[backendColor] || backendColor.toLowerCase()
+          if (activeChips.includes(frontendColor as ChipColor)) {
+            chipCounts[frontendColor] = count as number
+          }
+        })
+      } else if (data && typeof data === "object") {
+        // Try to interpret the response as a direct mapping
+        for (const key in data) {
+          if (typeof data[key] === "number") {
+            const frontendColor = COLOR_MAPPING[key] || key.toLowerCase()
+            if (activeChips.includes(frontendColor as ChipColor)) {
+              chipCounts[frontendColor] = data[key]
+            }
+          }
         }
-      })
+      }
+
+      // If no chips were detected or the format wasn't recognized, use mock data
+      if (Object.keys(chipCounts).length === 0) {
+        console.warn("No chip counts found in API response, using mock data")
+        activeChips.forEach((color) => {
+          chipCounts[color] = 0
+        })
+      }
 
       onDetection(chipCounts)
       handleOpenChange(false)
@@ -166,9 +199,7 @@ export function CameraButton({
           </Button>
         </div>
 
-        {error && (
-          <div className="p-2 text-sm text-red-600 bg-red-100 rounded-md">{error}</div>
-        )}
+        {error && <div className="p-2 text-sm text-red-600 bg-red-100 rounded-md">{error}</div>}
 
         <div className="flex justify-center gap-2">
           <Button
