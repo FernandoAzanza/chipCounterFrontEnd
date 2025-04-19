@@ -1,11 +1,12 @@
 // API configuration
 export const API_CONFIG = {
-  // Backend API URL - change this to your actual backend URL
-  baseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  // Backend API URL - now using the Modal endpoint
+  baseUrl:
+    process.env.NEXT_PUBLIC_API_URL || "https://fernandoazanza--yolo-chip-detector-run-inference-from-upload.modal.run",
 
   // Endpoints
   endpoints: {
-    predict: "/predict/",
+    predict: "/", // Modal endpoints typically use the root path
   },
 
   // Feature flags

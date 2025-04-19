@@ -87,7 +87,7 @@ export async function getUserSessions(): Promise<Session[]> {
   }
 
   // Extract the session IDs
-  const sessionIds = participatedSessionIds.map((p) => p.session_id)
+  const sessionIds: string[] = participatedSessionIds.map((p: { session_id: string }) => p.session_id)
 
   // Get the session details for participated sessions
   const { data: participatedSessions, error: sessionsError } = await supabase
@@ -104,8 +104,8 @@ export async function getUserSessions(): Promise<Session[]> {
   const allSessions = [...(createdSessions || [])]
 
   // Add participated sessions that aren't already in the list
-  participatedSessions?.forEach((session) => {
-    if (!allSessions.some((s) => s.id === session.id)) {
+  participatedSessions?.forEach((session: Session) => {
+    if (!allSessions.some((s: Session) => s.id === session.id)) {
       allSessions.push(session)
     }
   })
@@ -158,7 +158,7 @@ export async function getSessionParticipants(sessionId: string): Promise<string[
     return []
   }
 
-  return data.map((p) => p.user_id) || []
+  return data.map((p: { user_id: string }) => p.user_id) || []
 }
 
 // Chip color operations
