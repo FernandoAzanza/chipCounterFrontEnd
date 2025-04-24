@@ -4,10 +4,10 @@ from collections import defaultdict
 import os
 
 # 🔁 Load model
-model = YOLO("v5/my_model5yolov8.pt")  # Change path if needed
+model = YOLO("v5/my_model5yolov8.pt")
 
-# 📂 Image path — change this to the actual image filename
-image_path = "test_images/IMG_9054.jpg"  # Put your photo here
+# 📂 Image path
+image_path = "test_images/IMG_9054.jpg" # Change to your image path
 
 # ✅ Load image
 img = cv2.imread(image_path)
